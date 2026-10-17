@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UA Uploader</title>
+<style>
+:root{--bg:#0b0813;--card:#15101f;--tx:#f1ecfa;--mut:#a59cc0;--bd:#2a2140;--ac:#00a6c8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif}
+main{max-width:720px;margin:auto;padding:16px}
+h1{text-align:center;color:var(--ac);margin:10px 0 2px}.sub{text-align:center;color:var(--mut);margin-bottom:12px}
+h2{font-size:1.1rem;border-left:3px solid var(--ac);padding-left:8px;margin:24px 0 8px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:8px 0;word-break:break-word}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+button,a.btn{background:transparent;color:var(--ac);border:1.5px solid var(--ac);border-radius:9px;padding:8px 14px;font-weight:600;cursor:pointer;text-decoration:none;font-size:.95rem}
+button:hover,a.btn:hover{background:var(--ac);color:#fff}button.g{color:var(--mut);border-color:var(--bd)}button.r{color:#ff5c6c;border-color:#ff5c6c}
+input{width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px;margin:4px 0;font:inherit}
+.tiny{font-size:.8rem;color:var(--mut)}.top{display:flex;justify-content:flex-end}
+</style></head><body><main>
+<div class="top" style="gap:8px;align-items:center;flex-wrap:wrap"><span id="me" class="tiny"></span><button class="g" id="gbtn">Sign in with Google</button><button class="g" id="devbtn">⚙ Developer</button></div>
+<h1>UA Uploader</h1><div class="sub">Upload and share files with everyone</div>
+<h2>Upload</h2>
+<div class="card"><input id="un" placeholder="Your name (optional)"><input id="uf" type="file">
+<div class="tiny">Free: up to 50 MB per file. Premium: up to 2 GB per file, 35 GB total. Uploads appear publicly after the owner approves them.</div>
+<button id="ub" style="margin-top:8px">Upload</button><div id="um" class="tiny"></div></div>
+<h2>Paid version</h2>
+<div class="card"><div class="row"><div><b>Premium 35 GB</b><div class="tiny" id="pstat">Instant approval for your uploads, 35 GB storage</div></div><div><b style="color:var(--ac)" id="pprice"></b> <button id="buy">Buy paid version</button></div></div>
+<div id="pay" style="display:none;margin-top:12px"><div style="text-align:center"><img src="jazzcash.png" alt="JazzCash" style="height:48px" onerror="this.outerHTML='<span style=\'background:#e60000;color:#fff;font-weight:800;padding:6px 14px;border-radius:8px\'>JazzCash</span>'"></div>
+<p>Send <b id="pamt"></b> to this JazzCash number:</p><div class="card" style="text-align:center;font-size:1.4rem;font-weight:700" id="pnum"></div>
+<input id="pj" placeholder="Your JazzCash number"><input id="pt" placeholder="Transaction ID (TID) from the SMS">
+<div class="tiny">After sending, enter your details. The owner checks the payment and approves your request.</div>
+<button id="ps" style="margin-top:8px">I have paid</button><div id="pm" class="tiny"></div></div></div>
+<h2>Files</h2><div id="list"></div>
+<div id="admin" style="display:none"><h2>Developer Panel</h2><div class="card row"><span id="who" class="tiny"></span><button class="g" id="lo">Log out</button></div>
+<h2>Purchase requests</h2><div id="preq"></div><h2>Pending approval</h2><div id="pend"></div></div>
+
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+// ====== PUT YOUR SUPABASE DETAILS HERE ======
+const SUPABASE_URL='PASTE_PROJECT_URL';
+const SUPABASE_KEY='PASTE_ANON_PUBLIC_KEY';
+// ============================================
+const ADMIN_EMAIL='YOUR_GMAIL@gmail.com',PRICE=800,JC='03106921077',FREE_MAX=50*1024*1024,PREM_MAX=2*1024*1024*1024,PREM_TOTAL=35*1024*1024*1024;
+const BLOCK=/\.(exe|bat|cmd|scr|msi|vbs|ps1|com|pif|jar)$/i;
+const $=s=>document.querySelector(s),esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sz=n=>n>1073741824?(n/1073741824).toFixed(2)+" GB":n>1048576?(n/1048576).toFixed(1)+' MB':Math.ceil(n/1024)+' KB';
+let sb=null,admin=false,sess=null,prem=false,used=0;
+try{sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
+const url=p=>sb.storage.from('files').getPublicUrl(p).data.publicUrl;
+function item(f,pend){return `<div class="card"><div class="row"><div><b>${esc(f.name)}</b><div class="tiny">${sz(f.size||0)} • by ${esc(f.uploader||'Guest')} • ${new Date(f.created_at).toLocaleDateString()}</div></div>
+<div><a class="btn" href="${url(f.path)}" target="_blank" rel="noopener" download>${pend?'Preview':'Download'}</a>
+${admin?`${pend?`<button data-a="${f.id}">Approve</button> `:''}<button class="r" data-d="${f.id}" data-p="${esc(f.path)}">Delete</button>`:''}</div></div></div>`}
+$('#pprice').textContent=PRICE;$('#pamt').textContent=PRICE;$('#pnum').textContent=JC;
+async function load(){
+  if(!sb||SUPABASE_URL.startsWith('PASTE'))return $('#list').innerHTML='<div class="card tiny">Setup not finished: add your Supabase URL and key in index.html.</div>';
+  const {data,error}=await sb.from('uploads').select('*').eq('approved',true).order('created_at',{ascending:false});
+  $('#list').innerHTML=error?'<div class="card tiny">Could not load files.</div>':(data.length?data.map(f=>item(f,false)).join(''):'<div class="card tiny">No files yet.</div>');
+  if(admin){
+    const p=await sb.from('uploads').select('*').eq('approved',false).order('created_at',{ascending:false});
+    $('#pend').innerHTML=p.data&&p.data.length?p.data.map(f=>item(f,true)).join(''):'<div class="card tiny">Nothing waiting.</div>';
+    const r=await sb.from('purchases').select('*').eq('status','pending').order('created_at',{ascending:false});
+    $('#preq').innerHTML=r.data&&r.data.length?r.data.map(x=>`<div class="card"><b>${esc(x.email)}</b><div class="tiny">JazzCash: ${esc(x.jc_number)} • TID: ${esc(x.tid)} • ${x.amount} • ${new Date(x.created_at).toLocaleString()}</div>
+<div style="margin-top:8px"><button data-pa="${x.id}">Accept</button> <button class="r" data-pr="${x.id}">Reject</button></div></div>`).join(''):'<div class="card tiny">No requests.</div>';
+  }
+  document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{await sb.from('uploads').update({approved:true}).eq('id',b.dataset.a);load()});
+  document.querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this file?'))return;
+    await sb.storage.from('files').remove([b.dataset.p]);await sb.from('uploads').delete().eq('id',b.dataset.d);load()});
+  document.querySelectorAll('[data-pa]').forEach(b=>b.onclick=async()=>{await sb.from('purchases').update({status:'approved'}).eq('id',b.dataset.pa);load()});
+  document.querySelectorAll('[data-pr]').forEach(b=>b.onclick=async()=>{await sb.from('purchases').update({status:'rejected'}).eq('id',b.dataset.pr);load()});
+}
+async function account(){
+  const email=sess?.user?.email||'';admin=!!email&&email.toLowerCase()===ADMIN_EMAIL.toLowerCase();prem=false;used=0;
+  $('#me').textContent=email;$('#gbtn').textContent=sess?'Log out':'Sign in with Google';
+  $('#admin').style.display=admin?'block':'none';$('#who').textContent=email;
+  if(sess){
+    const p=await sb.from('purchases').select('status').order('created_at',{ascending:false});
+    const st=(p.data||[]);prem=st.some(x=>x.status==='approved');
+    const last=st[0]?.status;
+    $('#pstat').textContent=prem?'Premium active: 35 GB storage, instant approval':last==='pending'?'Your payment request is waiting for approval':last==='rejected'?'Your last request was rejected. You can send a new one.':'Instant approval for your uploads, 35 GB storage';
+    $('#buy').style.display=prem?'none':'';
+    const u=await sb.from('uploads').select('size').eq('user_id',sess.user.id);used=(u.data||[]).reduce((a,x)=>a+(x.size||0),0);
+  }else{$('#buy').style.display='';$('#pstat').textContent='Instant approval for your uploads, 35 GB storage'}
+  load();
+}
+const signIn=()=>sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.href.split('#')[0].split('?')[0]}});
+$('#gbtn').onclick=async()=>{if(sess){await sb.auth.signOut()}else signIn()};
+$('#devbtn').onclick=()=>{if(!sess)return signIn();if(!admin)alert('Only the owner can use the developer panel.');else $('#admin').scrollIntoView()};
+$('#lo').onclick=()=>sb.auth.signOut();
+$('#buy').onclick=()=>{if(!sess)return signIn();$('#pay').style.display='block'};
+$('#ps').onclick=async()=>{const j=$('#pj').value.trim(),t=$('#pt').value.trim(),m=$('#pm');
+  if(!/^\d{10,13}$/.test(j.replace(/\D/g,''))||t.length<5)return m.textContent='Enter your JazzCash number and the Transaction ID.';
+  const r=await sb.from('purchases').insert({jc_number:j,tid:t,amount:PRICE});
+  if(r.error)return m.textContent='Failed: '+r.error.message;
+  m.textContent='Request sent! The owner will approve it after checking the payment.';$('#pt').value='';account()};
+$('#ub').onclick=async()=>{const f=$('#uf').files[0],m=$('#um');if(!sb)return;
+  if(!f)return m.textContent='Choose a file first.';
+  const max=prem?PREM_MAX:FREE_MAX;
+  if(f.size>max)return m.textContent=prem?'File is too large (max 2 GB).':'Free limit is 50 MB per file. Buy the paid version for up to 2 GB.';
+  if(prem&&used+f.size>PREM_TOTAL)return m.textContent='Your 35 GB storage is full.';
+  if(BLOCK.test(f.name))return m.textContent='This file type is not allowed.';
+  m.textContent='Uploading...';
+  const path=crypto.randomUUID()+'/'+f.name.replace(/[^\w.\-]/g,'_');
+  const u=await sb.storage.from('files').upload(path,f);if(u.error)return m.textContent='Upload failed: '+u.error.message;
+  const row={name:f.name,path,size:f.size,uploader:$('#un').value.trim().slice(0,40)||'Guest',user_id:sess?.user.id||null,approved:prem};
+  const r=await sb.from('uploads').insert(row);
+  m.textContent=r.error?'Failed: '+r.error.message:(prem?'Uploaded!':'Uploaded! It will show after approval.');$('#uf').value='';account()};
+if(sb){sb.auth.onAuthStateChange((_e,s)=>{sess=s;account()});sb.auth.getSession().then(r=>{sess=r.data.session;account()})}else load();
+</script></body></html>
